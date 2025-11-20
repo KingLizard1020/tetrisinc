@@ -3,8 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+// Score bookkeeping and persistence helpers.
 static const int line_values[] = {0, 100, 300, 500, 800};
 
+// Load the saved high score (when available) and prepare bookkeeping.
 int score_state_init(ScoreState *state, const char *path) {
     if (state == NULL) {
         return -1;
@@ -30,6 +32,7 @@ int score_state_init(ScoreState *state, const char *path) {
     return 0;
 }
 
+// Persist the current high score to disk.
 int score_state_save(const ScoreState *state) {
     if (state == NULL || state->storage_path[0] == '\0') {
         return -1;
@@ -45,6 +48,7 @@ int score_state_save(const ScoreState *state) {
     return 0;
 }
 
+// Clear the in-progress session score.
 void score_reset_current(ScoreState *state) {
     if (state == NULL) {
         return;
@@ -52,6 +56,7 @@ void score_reset_current(ScoreState *state) {
     state->current = 0;
 }
 
+// Award points for a batch of cleared lines (classic scoring table).
 void score_add_lines(ScoreState *state, int cleared_lines) {
     if (state == NULL || cleared_lines <= 0) {
         return;
@@ -67,6 +72,7 @@ void score_add_lines(ScoreState *state, int cleared_lines) {
     state->current += award;
 }
 
+// Increment score based on the distance of a hard drop.
 void score_add_drop(ScoreState *state, int dropped_cells) {
     if (state == NULL || dropped_cells <= 0) {
         return;
@@ -75,6 +81,7 @@ void score_add_drop(ScoreState *state, int dropped_cells) {
     state->current += dropped_cells * 2;
 }
 
+// Upgrade the saved high score if the current run beat it.
 bool score_commit_highscore(ScoreState *state) {
     if (state == NULL) {
         return false;

@@ -22,6 +22,7 @@ typedef enum {
     GAME_STATE_GAME_OVER
 } GameState;
 
+// --- Timing and gameplay constants ----------------------------------------------------------
 #define GRAVITY_INTERVAL_MS 700ULL
 #define MIN_GRAVITY_INTERVAL_MS 120ULL
 #define LOCK_DELAY_MS 500ULL
@@ -32,6 +33,7 @@ typedef enum {
 #define HUD_PULSE_DURATION_MS 350ULL
 #define DROP_FLASH_MAX_POINTS 256
 
+// --- Global game state ----------------------------------------------------------------------
 static GameState g_state = GAME_STATE_TITLE;
 static bool g_use_color = false;
 static Board g_board;
@@ -45,7 +47,7 @@ static uint64_t g_lock_timer_ms = 0ULL;
 static int g_total_lines_cleared = 0;
 static int g_level = 1;
 static uint64_t g_current_gravity_interval_ms = GRAVITY_INTERVAL_MS;
-static uint64_t g_last_frame_delta_ms = 16ULL;
+static uint64_t g_last_frame_delta_ms = 16ULL; // used by animation tickers
 static bool g_line_flash_rows[BOARD_HEIGHT];
 static uint64_t g_line_flash_timer_ms = 0ULL;
 static int g_cleared_rows_buffer[BOARD_HEIGHT];
@@ -54,6 +56,7 @@ static int g_drop_flash_row[DROP_FLASH_MAX_POINTS];
 static int g_drop_flash_col[DROP_FLASH_MAX_POINTS];
 static int g_drop_flash_count = 0;
 static uint64_t g_hud_pulse_timer_ms = 0ULL;
+// --- Forward declarations -------------------------------------------------------------------
 static void start_new_game(void);
 
 static void spawn_piece(void);
@@ -90,6 +93,7 @@ static void draw_piece_preview(int origin_y, int origin_x, const PieceShape *sha
 static void draw_title_overlay(void);
 static void draw_game_over_overlay(void);
 
+// Initialize ncurses, colors, RNG, and persistent score state.
 int game_init(void) {
     if (initscr() == NULL) {
         return -1;
@@ -120,6 +124,7 @@ int game_init(void) {
     return 0;
 }
 
+// Pump input/update/render until the window closes.
 void game_loop(void) {
     bool running = true;
     uint64_t last_tick = monotonic_millis();
@@ -131,6 +136,7 @@ void game_loop(void) {
         uint64_t now = monotonic_millis();
         uint64_t delta = now - last_tick;
         last_tick = now;
+        g_last_frame_delta_ms = delta;
 
         update_game(delta);
 
@@ -143,6 +149,7 @@ void game_shutdown(void) {
     endwin();
 }
 
+// Render the entire scene (board, HUD, overlays) for the current frame.
 static void draw_frame(void) {
     tick_animation_timers();
     erase();
@@ -332,6 +339,7 @@ static void draw_active_piece(int origin_y, int origin_x) {
     }
 }
 
+// Translate keyboard input into state changes for the current screen.
 static void handle_input(int ch, bool *running) {
     if (ch == ERR) {
         return;
@@ -400,6 +408,7 @@ static void handle_input(int ch, bool *running) {
     }
 }
 
+// Advance gravity, locking, and spawning while in the PLAYING state.
 static void update_game(uint64_t delta_ms) {
     if (g_state != GAME_STATE_PLAYING) {
         return;
@@ -433,6 +442,7 @@ static uint64_t monotonic_millis(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000ULL);
 }
 
+// Pull the next tetromino from the bag and position it at the spawn point.
 static void spawn_piece(void) {
     size_t total_shapes = piece_shape_count();
     if (total_shapes == 0) {
@@ -556,6 +566,7 @@ static void start_new_game(void) {
     g_state = GAME_STATE_PLAYING;
 }
 
+// Finalize the current piece, award scoring, clear lines, and queue the next piece.
 static void settle_active_piece(int drop_bonus_cells) {
     cancel_lock_delay();
     const PieceShape *shape = current_piece_shape();
@@ -623,6 +634,7 @@ static uint64_t gravity_interval_for_level(int level) {
     return interval;
 }
 
+// Start the flashing animation for recently cleared rows.
 static void trigger_line_flash(const int *rows, int count) {
     memset(g_line_flash_rows, 0, sizeof(g_line_flash_rows));
     if (rows == NULL || count <= 0) {
@@ -639,6 +651,7 @@ static void trigger_line_flash(const int *rows, int count) {
     g_line_flash_timer_ms = LINE_FLASH_DURATION_MS;
 }
 
+// Record every board cell traversed by a hard drop for the trail effect.
 static void record_drop_flash(const PieceShape *shape, int drop_distance) {
     if (shape == NULL || drop_distance <= 0) {
         g_drop_flash_count = 0;
@@ -684,6 +697,7 @@ static void trigger_hud_pulse(void) {
     g_hud_pulse_timer_ms = HUD_PULSE_DURATION_MS;
 }
 
+// Decrement animation timers once per frame so effects self-expire.
 static void tick_animation_timers(void) {
     uint64_t delta = g_last_frame_delta_ms;
     if (delta == 0) {
@@ -780,6 +794,7 @@ static void draw_piece_preview(int origin_y, int origin_x, const PieceShape *sha
     }
 }
 
+// Render the transient trail left by a hard drop.
 static void draw_drop_flash(int origin_y, int origin_x) {
     if (g_drop_flash_timer_ms == 0 || g_drop_flash_count == 0) {
         return;
@@ -807,6 +822,7 @@ static void draw_drop_flash(int origin_y, int origin_x) {
     }
 }
 
+// Display controls while waiting on the title screen.
 static void draw_title_overlay(void) {
     const char *title = "Terminal Tetris";
     const char *subtitle = "Press ENTER to start, Q to quit";
@@ -831,6 +847,7 @@ static void draw_title_overlay(void) {
     mvprintw(center_y + 3, center_x - (int)strlen(controls) / 2, "%s", controls);
 }
 
+// Show final stats plus restart instructions when the player tops out.
 static void draw_game_over_overlay(void) {
     const char *title = "Game Over";
     const char *subtitle = "Press R to restart or Q to quit";

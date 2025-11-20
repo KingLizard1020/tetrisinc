@@ -2,6 +2,8 @@
 
 #include "board.h"
 
+// Core board helpers: reset, collision detection, locking, and line clears.
+
 void board_reset(Board *board) {
     if (board == NULL) {
         return;
@@ -10,6 +12,7 @@ void board_reset(Board *board) {
     memset(board->cells, 0, sizeof(board->cells));
 }
 
+// Check whether a shape can occupy the requested position/rotation.
 bool board_can_place(const Board *board,
                      const PieceShape *shape,
                      int rotation,
@@ -47,6 +50,7 @@ bool board_can_place(const Board *board,
     return true;
 }
 
+// Commit a shape's cells to the board after it settles.
 void board_lock_shape(Board *board,
                       const PieceShape *shape,
                       int rotation,
@@ -77,6 +81,7 @@ void board_lock_shape(Board *board,
     }
 }
 
+// Remove any completely filled rows and collapse the stack.
 int board_clear_completed_lines(Board *board, int *rows_out, int max_rows) {
     if (board == NULL) {
         return 0;
@@ -106,7 +111,7 @@ int board_clear_completed_lines(Board *board, int *rows_out, int max_rows) {
         }
         memset(board->cells[0], 0, sizeof(board->cells[0]));
         ++cleared;
-        ++row;
+        ++row; // re-check the same row index after rows shift downward
     }
 
     return cleared;

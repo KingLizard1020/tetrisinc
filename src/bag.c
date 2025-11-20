@@ -2,6 +2,9 @@
 
 #include <stdlib.h>
 
+// Implements the seven-bag style randomizer used for piece order.
+
+// Refill and shuffle the bag using Fisher-Yates so every piece appears once.
 static void piece_bag_refill(PieceBag *bag) {
     if (bag == NULL || bag->piece_count == 0) {
         return;
@@ -22,6 +25,7 @@ static void piece_bag_refill(PieceBag *bag) {
     bag->cursor = 0;
 }
 
+// Prepare a bag with the provided number of unique pieces.
 void piece_bag_init(PieceBag *bag, size_t piece_count) {
     if (bag == NULL) {
         return;
@@ -39,6 +43,7 @@ void piece_bag_init(PieceBag *bag, size_t piece_count) {
     }
 }
 
+// Retrieve the next piece id, refilling automatically when exhausted.
 int piece_bag_next(PieceBag *bag) {
     if (bag == NULL || bag->piece_count == 0) {
         return -1;

@@ -1,5 +1,6 @@
 #include "piece.h"
 
+// Static definitions for every tetromino shape and rotation.
 static const PieceShape g_piece_defs[] = {
     {4, 2, {"0000111100000000", "0010001000100010", NULL, NULL}},
     {4, 1, {"0011001100000000", NULL, NULL, NULL}},
@@ -12,10 +13,12 @@ static const PieceShape g_piece_defs[] = {
 
 static const size_t PIECE_COUNT = sizeof(g_piece_defs) / sizeof(g_piece_defs[0]);
 
+// Return how many unique shapes are available.
 size_t piece_shape_count(void) {
     return PIECE_COUNT;
 }
 
+// Get a shape descriptor by index, or NULL if out-of-range.
 const PieceShape *piece_shape_get(size_t index) {
     if (index >= PIECE_COUNT) {
         return NULL;
@@ -23,6 +26,7 @@ const PieceShape *piece_shape_get(size_t index) {
     return &g_piece_defs[index];
 }
 
+// Utility used by tests/board logic to examine individual cells.
 bool piece_shape_cell_filled(const PieceShape *shape, int rotation, int local_row, int local_col) {
     if (shape == NULL || rotation < 0 || rotation >= shape->rotation_count) {
         return false;

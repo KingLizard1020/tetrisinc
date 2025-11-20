@@ -3,6 +3,8 @@
 
 #include "game.h"
 
+// Entry point that wires the terminal lifecycle to the game module.
+
 int main(void) {
     if (game_init() != 0) {
         fprintf(stderr, "Failed to initialize game.\n");
