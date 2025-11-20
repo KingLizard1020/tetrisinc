@@ -88,6 +88,7 @@ static void draw_score_panel(int origin_y, int origin_x);
 static void draw_next_piece_panel(int origin_y, int origin_x);
 static void draw_piece_preview(int origin_y, int origin_x, const PieceShape *shape);
 static void draw_title_overlay(void);
+static void draw_game_over_overlay(void);
 
 int game_init(void) {
     if (initscr() == NULL) {
@@ -166,6 +167,8 @@ static void draw_frame(void) {
     draw_next_piece_panel(board_origin_y + 6, hud_origin_x);
     if (g_state == GAME_STATE_TITLE) {
         draw_title_overlay();
+    } else if (g_state == GAME_STATE_GAME_OVER) {
+        draw_game_over_overlay();
     }
 
     refresh();
@@ -826,4 +829,30 @@ static void draw_title_overlay(void) {
 
     mvprintw(center_y + 2, center_x - (int)strlen(subtitle) / 2, "%s", subtitle);
     mvprintw(center_y + 3, center_x - (int)strlen(controls) / 2, "%s", controls);
+}
+
+static void draw_game_over_overlay(void) {
+    const char *title = "Game Over";
+    const char *subtitle = "Press R to restart or Q to quit";
+
+    int center_y = LINES / 3;
+    int center_x = COLS / 2;
+
+    if (g_use_color) {
+        attron(COLOR_PAIR(2));
+    } else {
+        attron(A_BOLD);
+    }
+
+    mvprintw(center_y, center_x - (int)strlen(title) / 2, "%s", title);
+    mvprintw(center_y + 2, center_x - (int)strlen(subtitle) / 2, "%s", subtitle);
+    mvprintw(center_y + 4, center_x - 12, "Score     : %d", g_score.current);
+    mvprintw(center_y + 5, center_x - 12, "High Score: %d", g_score.high);
+    mvprintw(center_y + 6, center_x - 12, "Lines     : %d", g_total_lines_cleared);
+
+    if (g_use_color) {
+        attroff(COLOR_PAIR(2));
+    } else {
+        attroff(A_BOLD);
+    }
 }
