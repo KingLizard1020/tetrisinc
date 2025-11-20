@@ -28,10 +28,10 @@ mingw32-make test
 `make clean` (or `mingw32-make clean`) removes `build/`.
 
 ## Controls
-'''
+```
 - Arrow keys or A/D: move piece
 - Up or W: rotate
 - Down or S: soft drop
 - Space: hard drop
 - Q: quit
-'''
+```
