@@ -5,7 +5,7 @@ BUILD   := build
 TARGET  := $(BUILD)/terminal_tetris
 SRC     := $(wildcard src/*.c)
 OBJ     := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
-CORE_OBJ := $(BUILD)/board.o $(BUILD)/piece.o $(BUILD)/score.o
+CORE_OBJ := $(BUILD)/board.o $(BUILD)/piece.o $(BUILD)/score.o $(BUILD)/bag.o
 TEST_SRC := $(wildcard tests/*.c)
 TEST_BIN := $(patsubst tests/%.c,$(BUILD)/tests/%,$(TEST_SRC))
 

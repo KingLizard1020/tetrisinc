@@ -10,12 +10,16 @@
 #include <string.h>
 #include <time.h>
 
+#include "bag.h"
 #include "board.h"
 #include "game.h"
 #include "piece.h"
 #include "score.h"
 
 #define GRAVITY_INTERVAL_MS 700ULL
+#define MIN_GRAVITY_INTERVAL_MS 120ULL
+#define LOCK_DELAY_MS 500ULL
+#define LINES_PER_LEVEL 10
 #define CELL_EMPTY 0
 
 static bool g_use_color = false;
@@ -24,6 +28,13 @@ static ActivePiece g_active_piece;
 static uint64_t g_gravity_accumulator_ms = 0ULL;
 static ScoreState g_score;
 static int g_next_piece_type = -1;
+static PieceBag g_piece_bag;
+static bool g_game_over = false;
+static bool g_lock_pending = false;
+static uint64_t g_lock_timer_ms = 0ULL;
+static int g_total_lines_cleared = 0;
+static int g_level = 1;
+static uint64_t g_current_gravity_interval_ms = GRAVITY_INTERVAL_MS;
 
 static void spawn_piece(void);
 static const PieceShape *current_piece_shape(void);
@@ -38,6 +49,10 @@ static void handle_input(int ch, bool *running);
 static void update_game(uint64_t delta_ms);
 static uint64_t monotonic_millis(void);
 static void settle_active_piece(int drop_bonus_cells);
+static void begin_lock_delay(void);
+static void cancel_lock_delay(void);
+static void update_level_and_speed(void);
+static uint64_t gravity_interval_for_level(int level);
 static void draw_frame(void);
 static bool has_enough_space(void);
 static void draw_banner(void);
@@ -65,9 +80,9 @@ int game_init(void) {
         g_use_color = true;
     }
 
+    srand((unsigned int)time(NULL));
     score_state_init(&g_score, SCORE_DEFAULT_FILE);
     reset_board_state();
-    srand((unsigned int)time(NULL));
     ensure_next_piece();
     spawn_piece();
 
@@ -135,8 +150,12 @@ static void draw_banner(void) {
         attroff(COLOR_PAIR(1));
     }
 
-    mvprintw(2, 2, "Press 'q' to quit");
-    mvprintw(3, 2, "Arrows move, Space hard drops.");
+    if (g_game_over) {
+        mvprintw(2, 2, "Game Over - press 'r' to restart or 'q' to quit");
+    } else {
+        mvprintw(2, 2, "Press 'q' to quit");
+        mvprintw(3, 2, "Arrows move, Space hard drops.");
+    }
 }
 
 static void draw_board(int origin_y, int origin_x) {
@@ -216,6 +235,17 @@ static void handle_input(int ch, bool *running) {
         return;
     }
 
+    if (g_game_over) {
+        if (ch == 'r' || ch == 'R') {
+            reset_board_state();
+            ensure_next_piece();
+            spawn_piece();
+        } else if (ch == 'q' || ch == 'Q') {
+            *running = false;
+        }
+        return;
+    }
+
     switch (ch) {
         case 'q':
         case 'Q':
@@ -224,24 +254,30 @@ static void handle_input(int ch, bool *running) {
         case KEY_LEFT:
         case 'a':
         case 'A':
-            try_move_piece(0, -1);
+            if (try_move_piece(0, -1)) {
+                cancel_lock_delay();
+            }
             break;
         case KEY_RIGHT:
         case 'd':
         case 'D':
-            try_move_piece(0, 1);
+            if (try_move_piece(0, 1)) {
+                cancel_lock_delay();
+            }
             break;
         case KEY_DOWN:
         case 's':
         case 'S':
             if (!try_move_piece(1, 0)) {
-                settle_active_piece(0);
+                begin_lock_delay();
             }
             break;
         case KEY_UP:
         case 'w':
         case 'W':
-            try_rotate_piece(1);
+            if (try_rotate_piece(1)) {
+                cancel_lock_delay();
+            }
             break;
         case ' ':
             {
@@ -256,16 +292,28 @@ static void handle_input(int ch, bool *running) {
 }
 
 static void update_game(uint64_t delta_ms) {
+    if (g_game_over) {
+        return;
+    }
+
     if (!g_active_piece.active) {
         spawn_piece();
     }
 
     g_gravity_accumulator_ms += delta_ms;
-    while (g_gravity_accumulator_ms >= GRAVITY_INTERVAL_MS) {
-        g_gravity_accumulator_ms -= GRAVITY_INTERVAL_MS;
+    while (g_gravity_accumulator_ms >= g_current_gravity_interval_ms) {
+        g_gravity_accumulator_ms -= g_current_gravity_interval_ms;
         if (!try_move_piece(1, 0)) {
+            begin_lock_delay();
+        } else {
+            cancel_lock_delay();
+        }
+    }
+
+    if (g_lock_pending) {
+        g_lock_timer_ms += delta_ms;
+        if (g_lock_timer_ms >= LOCK_DELAY_MS) {
             settle_active_piece(0);
-            break;
         }
     }
 }
@@ -285,7 +333,7 @@ static void spawn_piece(void) {
 
     ensure_next_piece();
     g_active_piece.type = g_next_piece_type;
-    g_next_piece_type = (int)(rand() % (int)total_shapes);
+    g_next_piece_type = piece_bag_next(&g_piece_bag);
     g_active_piece.rotation = 0;
     g_active_piece.row = -2;
     const PieceShape *shape = current_piece_shape();
@@ -293,8 +341,8 @@ static void spawn_piece(void) {
     g_active_piece.active = true;
 
     if (!board_can_place(&g_board, shape, g_active_piece.rotation, g_active_piece.row, g_active_piece.col)) {
-        reset_board_state();
-        ensure_next_piece();
+        g_game_over = true;
+        g_active_piece.active = false;
     }
 }
 
@@ -366,7 +414,10 @@ static void ensure_next_piece(void) {
         return;
     }
 
-    g_next_piece_type = (int)(rand() % (int)total_shapes);
+    if (g_piece_bag.piece_count == 0) {
+        piece_bag_init(&g_piece_bag, total_shapes);
+    }
+    g_next_piece_type = piece_bag_next(&g_piece_bag);
 }
 
 static void reset_board_state(void) {
@@ -374,6 +425,13 @@ static void reset_board_state(void) {
     g_active_piece.active = false;
     g_gravity_accumulator_ms = 0ULL;
     g_next_piece_type = -1;
+    g_total_lines_cleared = 0;
+    g_level = 1;
+    g_current_gravity_interval_ms = gravity_interval_for_level(g_level);
+    g_game_over = false;
+    g_lock_pending = false;
+    g_lock_timer_ms = 0ULL;
+    piece_bag_init(&g_piece_bag, piece_shape_count());
     score_reset_current(&g_score);
 }
 
@@ -387,6 +445,8 @@ static void settle_active_piece(int drop_bonus_cells) {
     int cleared = clear_completed_lines();
     if (cleared > 0) {
         score_add_lines(&g_score, cleared);
+        g_total_lines_cleared += cleared;
+        update_level_and_speed();
     }
 
     if (score_commit_highscore(&g_score)) {
@@ -396,9 +456,46 @@ static void settle_active_piece(int drop_bonus_cells) {
     spawn_piece();
 }
 
+static void begin_lock_delay(void) {
+    if (g_lock_pending) {
+        return;
+    }
+    g_lock_pending = true;
+    g_lock_timer_ms = 0ULL;
+}
+
+static void cancel_lock_delay(void) {
+    g_lock_pending = false;
+    g_lock_timer_ms = 0ULL;
+}
+
+static void update_level_and_speed(void) {
+    int new_level = (g_total_lines_cleared / LINES_PER_LEVEL) + 1;
+    if (new_level != g_level) {
+        g_level = new_level;
+        g_current_gravity_interval_ms = gravity_interval_for_level(g_level);
+    }
+}
+
+static uint64_t gravity_interval_for_level(int level) {
+    uint64_t interval = GRAVITY_INTERVAL_MS;
+    for (int i = 1; i < level; ++i) {
+        if (interval > MIN_GRAVITY_INTERVAL_MS + 50ULL) {
+            interval -= 50ULL;
+        } else {
+            interval = MIN_GRAVITY_INTERVAL_MS;
+            break;
+        }
+    }
+    return interval;
+}
+
 static void draw_score_panel(int origin_y, int origin_x) {
     mvprintw(origin_y, origin_x,   "Score     : %d", g_score.current);
     mvprintw(origin_y + 1, origin_x, "High Score: %d", g_score.high);
+    mvprintw(origin_y + 2, origin_x, "Level     : %d", g_level);
+    mvprintw(origin_y + 3, origin_x, "Lines     : %d", g_total_lines_cleared);
+    mvprintw(origin_y + 4, origin_x, "Gravity   : %lums", (unsigned long)g_current_gravity_interval_ms);
 }
 
 static void draw_next_piece_panel(int origin_y, int origin_x) {
