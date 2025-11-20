@@ -42,7 +42,8 @@ static void test_board_lock_and_clear(void) {
     for (int col = 0; col < BOARD_WIDTH; ++col) {
         board.cells[BOARD_HEIGHT - 1][col] = 5;
     }
-    int cleared = board_clear_completed_lines(&board);
+    int rows[BOARD_HEIGHT];
+    int cleared = board_clear_completed_lines(&board, rows, BOARD_HEIGHT);
     assert(cleared == 1);
     for (int col = 0; col < BOARD_WIDTH; ++col) {
         assert(board.cells[BOARD_HEIGHT - 1][col] == 0);
@@ -91,7 +92,8 @@ static void test_board_clear_multiple_lines(void) {
         board.cells[BOARD_HEIGHT - 2][col] = 2;
     }
 
-    int cleared = board_clear_completed_lines(&board);
+    int rows[BOARD_HEIGHT];
+    int cleared = board_clear_completed_lines(&board, rows, BOARD_HEIGHT);
     assert(cleared == 2);
 
     for (int row = BOARD_HEIGHT - 2; row < BOARD_HEIGHT; ++row) {

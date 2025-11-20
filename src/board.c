@@ -77,7 +77,7 @@ void board_lock_shape(Board *board,
     }
 }
 
-int board_clear_completed_lines(Board *board) {
+int board_clear_completed_lines(Board *board, int *rows_out, int max_rows) {
     if (board == NULL) {
         return 0;
     }
@@ -95,6 +95,10 @@ int board_clear_completed_lines(Board *board) {
 
         if (!full) {
             continue;
+        }
+
+        if (rows_out != NULL && cleared < max_rows) {
+            rows_out[cleared] = row;
         }
 
         for (int move_row = row; move_row > 0; --move_row) {

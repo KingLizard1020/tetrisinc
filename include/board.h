@@ -27,6 +27,6 @@ void board_lock_shape(Board *board,
                       int base_col,
                       int value);
 
-int board_clear_completed_lines(Board *board);
+int board_clear_completed_lines(Board *board, int *rows_out, int max_rows);
 
 #endif /* BOARD_H */

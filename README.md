@@ -7,6 +7,7 @@ Tiny curses playground for evolving a Tetris clone. Runs with `ncurses` on macOS
 - Score tracking with persistent high score (`highscore.dat`)
 - Next-piece preview plus hard drop for faster play
 - Seven-bag randomization, lock delay, and level-based gravity
+- Line-flash, drop-trail, and HUD pulse animations for satisfying feedback
 - Automated logic tests via `make test`
 
 ## Build & Run
@@ -36,4 +37,6 @@ mingw32-make test
 - Space: hard drop
 - R: restart after game over
 - Q: quit
+
+`make test` now covers bag randomization, board edge cases, scoring math, piece definitions, and scripted gravity/lock simulations for stress coverage.
 ```
