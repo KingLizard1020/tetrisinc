@@ -36,5 +36,6 @@ mingw32-make test
 - R: restart after game over
 - Q: quit
 
+```
 `make test` covers bag randomization, board edge cases, scoring math, piece definitions, and scripted gravity/lock simulations for stress coverage.
 ```

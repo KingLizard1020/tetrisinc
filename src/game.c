@@ -27,6 +27,10 @@ typedef enum {
 #define LOCK_DELAY_MS 500ULL
 #define LINES_PER_LEVEL 10
 #define CELL_EMPTY 0
+#define LINE_FLASH_DURATION_MS 220ULL
+#define DROP_FLASH_DURATION_MS 180ULL
+#define HUD_PULSE_DURATION_MS 350ULL
+#define DROP_FLASH_MAX_POINTS 256
 
 static GameState g_state = GAME_STATE_TITLE;
 static bool g_use_color = false;
@@ -41,14 +45,15 @@ static uint64_t g_lock_timer_ms = 0ULL;
 static int g_total_lines_cleared = 0;
 static int g_level = 1;
 static uint64_t g_current_gravity_interval_ms = GRAVITY_INTERVAL_MS;
+static uint64_t g_last_frame_delta_ms = 16ULL;
 static bool g_line_flash_rows[BOARD_HEIGHT];
-static int g_line_flash_timer = 0;
+static uint64_t g_line_flash_timer_ms = 0ULL;
 static int g_cleared_rows_buffer[BOARD_HEIGHT];
-static int g_drop_flash_timer = 0;
-static int g_drop_flash_row[16];
-static int g_drop_flash_col[16];
+static uint64_t g_drop_flash_timer_ms = 0ULL;
+static int g_drop_flash_row[DROP_FLASH_MAX_POINTS];
+static int g_drop_flash_col[DROP_FLASH_MAX_POINTS];
 static int g_drop_flash_count = 0;
-static int g_hud_pulse_timer = 0;
+static uint64_t g_hud_pulse_timer_ms = 0ULL;
 static void start_new_game(void);
 
 static void spawn_piece(void);
@@ -69,7 +74,7 @@ static void cancel_lock_delay(void);
 static void update_level_and_speed(void);
 static uint64_t gravity_interval_for_level(int level);
 static void trigger_line_flash(const int *rows, int count);
-static void record_drop_flash(const PieceShape *shape);
+static void record_drop_flash(const PieceShape *shape, int drop_distance);
 static void draw_drop_flash(int origin_y, int origin_x);
 static void trigger_hud_pulse(void);
 static void tick_animation_timers(void);
@@ -204,7 +209,7 @@ static void draw_board(int origin_y, int origin_x) {
     for (int row = 0; row < BOARD_HEIGHT; ++row) {
         move(origin_y + row, origin_x - 1);
         addch('|');
-        bool flashing = g_line_flash_timer > 0 && g_line_flash_rows[row];
+        bool flashing = g_line_flash_timer_ms > 0 && g_line_flash_rows[row];
         if (flashing) {
             attron(A_REVERSE);
             if (g_use_color) {
@@ -534,10 +539,10 @@ static void reset_board_state(void) {
     g_lock_timer_ms = 0ULL;
     piece_bag_init(&g_piece_bag, piece_shape_count());
     memset(g_line_flash_rows, 0, sizeof(g_line_flash_rows));
-    g_line_flash_timer = 0;
-    g_drop_flash_timer = 0;
+    g_line_flash_timer_ms = 0ULL;
+    g_drop_flash_timer_ms = 0ULL;
     g_drop_flash_count = 0;
-    g_hud_pulse_timer = 0;
+    g_hud_pulse_timer_ms = 0ULL;
     score_reset_current(&g_score);
 }
 
@@ -552,10 +557,10 @@ static void settle_active_piece(int drop_bonus_cells) {
     cancel_lock_delay();
     const PieceShape *shape = current_piece_shape();
     if (drop_bonus_cells > 0) {
-        record_drop_flash(shape);
+        record_drop_flash(shape, drop_bonus_cells);
     } else {
         g_drop_flash_count = 0;
-        g_drop_flash_timer = 0;
+        g_drop_flash_timer_ms = 0ULL;
     }
 
     lock_piece();
@@ -618,7 +623,7 @@ static uint64_t gravity_interval_for_level(int level) {
 static void trigger_line_flash(const int *rows, int count) {
     memset(g_line_flash_rows, 0, sizeof(g_line_flash_rows));
     if (rows == NULL || count <= 0) {
-        g_line_flash_timer = 0;
+        g_line_flash_timer_ms = 0ULL;
         return;
     }
 
@@ -628,68 +633,89 @@ static void trigger_line_flash(const int *rows, int count) {
             g_line_flash_rows[row] = true;
         }
     }
-    g_line_flash_timer = 6;
+    g_line_flash_timer_ms = LINE_FLASH_DURATION_MS;
 }
 
-static void record_drop_flash(const PieceShape *shape) {
-    if (shape == NULL) {
+static void record_drop_flash(const PieceShape *shape, int drop_distance) {
+    if (shape == NULL || drop_distance <= 0) {
         g_drop_flash_count = 0;
-        g_drop_flash_timer = 0;
+        g_drop_flash_timer_ms = 0ULL;
         return;
     }
 
     g_drop_flash_count = 0;
 
     const char *pattern = shape->rotations[g_active_piece.rotation];
-    for (int r = 0; r < shape->size; ++r) {
-        for (int c = 0; c < shape->size; ++c) {
-            if (pattern[r * shape->size + c] != '1') {
-                continue;
-            }
+    int start_row = g_active_piece.row - drop_distance;
+    if (start_row < -shape->size) {
+        start_row = -shape->size;
+    }
 
-            int board_row = g_active_piece.row + r;
-            int board_col = g_active_piece.col + c;
-            if (board_row < 0 || board_row >= BOARD_HEIGHT || board_col < 0 || board_col >= BOARD_WIDTH) {
-                continue;
-            }
+    for (int step = 0; step <= drop_distance; ++step) {
+        int base_row = start_row + step;
+        for (int r = 0; r < shape->size; ++r) {
+            for (int c = 0; c < shape->size; ++c) {
+                if (pattern[r * shape->size + c] != '1') {
+                    continue;
+                }
 
-            if (g_drop_flash_count < (int)(sizeof(g_drop_flash_row) / sizeof(g_drop_flash_row[0]))) {
-                g_drop_flash_row[g_drop_flash_count] = board_row;
-                g_drop_flash_col[g_drop_flash_count] = board_col;
-                ++g_drop_flash_count;
+                int board_row = base_row + r;
+                int board_col = g_active_piece.col + c;
+                if (board_row < 0 || board_row >= BOARD_HEIGHT || board_col < 0 || board_col >= BOARD_WIDTH) {
+                    continue;
+                }
+
+                if (g_drop_flash_count < DROP_FLASH_MAX_POINTS) {
+                    g_drop_flash_row[g_drop_flash_count] = board_row;
+                    g_drop_flash_col[g_drop_flash_count] = board_col;
+                    ++g_drop_flash_count;
+                }
             }
         }
     }
 
-    g_drop_flash_timer = (g_drop_flash_count > 0) ? 4 : 0;
+    g_drop_flash_timer_ms = (g_drop_flash_count > 0) ? DROP_FLASH_DURATION_MS : 0ULL;
 }
 
 static void trigger_hud_pulse(void) {
-    g_hud_pulse_timer = 16;
+    g_hud_pulse_timer_ms = HUD_PULSE_DURATION_MS;
 }
 
 static void tick_animation_timers(void) {
-    if (g_line_flash_timer > 0) {
-        --g_line_flash_timer;
-        if (g_line_flash_timer == 0) {
+    uint64_t delta = g_last_frame_delta_ms;
+    if (delta == 0) {
+        delta = 1;
+    }
+
+    if (g_line_flash_timer_ms > 0) {
+        if (g_line_flash_timer_ms > delta) {
+            g_line_flash_timer_ms -= delta;
+        } else {
+            g_line_flash_timer_ms = 0;
             memset(g_line_flash_rows, 0, sizeof(g_line_flash_rows));
         }
     }
 
-    if (g_drop_flash_timer > 0) {
-        --g_drop_flash_timer;
-        if (g_drop_flash_timer == 0) {
+    if (g_drop_flash_timer_ms > 0) {
+        if (g_drop_flash_timer_ms > delta) {
+            g_drop_flash_timer_ms -= delta;
+        } else {
+            g_drop_flash_timer_ms = 0;
             g_drop_flash_count = 0;
         }
     }
 
-    if (g_hud_pulse_timer > 0) {
-        --g_hud_pulse_timer;
+    if (g_hud_pulse_timer_ms > 0) {
+        if (g_hud_pulse_timer_ms > delta) {
+            g_hud_pulse_timer_ms -= delta;
+        } else {
+            g_hud_pulse_timer_ms = 0;
+        }
     }
 }
 
 static void draw_score_panel(int origin_y, int origin_x) {
-    bool pulsing = g_hud_pulse_timer > 0;
+    bool pulsing = g_hud_pulse_timer_ms > 0;
     if (pulsing && g_use_color) {
         attron(COLOR_PAIR(2));
     } else if (pulsing) {
@@ -752,7 +778,7 @@ static void draw_piece_preview(int origin_y, int origin_x, const PieceShape *sha
 }
 
 static void draw_drop_flash(int origin_y, int origin_x) {
-    if (g_drop_flash_timer <= 0 || g_drop_flash_count == 0) {
+    if (g_drop_flash_timer_ms == 0 || g_drop_flash_count == 0) {
         return;
     }
 
